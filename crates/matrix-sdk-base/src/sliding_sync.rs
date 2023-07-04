@@ -95,7 +95,7 @@ impl BaseClient {
                 &e2ee.device_lists,
                 &e2ee.device_one_time_keys_count,
                 e2ee.device_unused_fallback_key_types.as_deref(),
-                &mut changes
+                &mut changes,
             )
             .await?;
 
