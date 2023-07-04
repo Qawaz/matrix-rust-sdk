@@ -44,10 +44,11 @@ impl TimelineInnerState {
         receipt: Receipt,
     ) {
         let Some(pos) = receipt_item_pos else { return };
-        let Some(mut event_item) = self.items[pos].as_event().cloned() else { return };
+        let timeline_item = self.items[pos].clone();
+        let Some(mut event_item) = timeline_item.as_event().cloned() else { return };
 
         event_item.as_remote_mut().unwrap().add_read_receipt(user_id, receipt);
-        self.items.set(pos, Arc::new(event_item.into()));
+        self.items.set(pos, Arc::new(timeline_item.updated(event_item.into())));
     }
 
     pub(super) fn handle_explicit_read_receipts(
@@ -68,7 +69,7 @@ impl TimelineInnerState {
                     }
 
                     let receipt_item_pos =
-                        rfind_event_by_id(&self.items, &event_id).map(|(pos, _)| pos);
+                        rfind_event_by_id(&self.items, &event_id).map(|(pos, _, _)| pos);
                     let is_own_user_id = user_id == own_user_id;
                     let full_receipt = FullReceipt {
                         event_id: &event_id,
@@ -258,7 +259,7 @@ fn maybe_update_read_receipt(
     }
 
     let old_item_and_pos = old_event_id.and_then(|e| rfind_event_by_id(timeline_items, e));
-    if let Some((old_receipt_pos, old_event_item)) = old_item_and_pos {
+    if let Some((old_receipt_pos, old_event_item, old_event_id)) = old_item_and_pos {
         let Some(new_receipt_pos) = new_item_pos else {
             // The old receipt is likely more recent since we can't find the
             // event of the new receipt in the timeline. Even if it isn't, we
@@ -281,7 +282,10 @@ fn maybe_update_read_receipt(
                          receipt doesn't have a receipt for the user"
                     );
                 }
-                timeline_items.set(old_receipt_pos, Arc::new(old_event_item.into()));
+                timeline_items.set(
+                    old_receipt_pos,
+                    Arc::new(TimelineItem::new(old_event_item.into(), old_event_id)),
+                );
             } else {
                 warn!("received a read receipt for a local item, this should not be possible");
             }

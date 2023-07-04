@@ -272,7 +272,7 @@ impl Timeline {
     /// object to look up items.
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
-        let (_, item) = rfind_event_by_id(&items, event_id)?;
+        let (_, item, _) = rfind_event_by_id(&items, event_id)?;
         Some(item.to_owned())
     }
 
@@ -707,8 +707,12 @@ pub struct TimelineItem {
 }
 
 impl TimelineItem {
-    pub(crate) fn new(kind: TimelineItemKind) -> Self {
-        Self { kind, internal_id: 0 }
+    pub(crate) fn new(kind: TimelineItemKind, internal_id: usize) -> Self {
+        Self { kind, internal_id }
+    }
+
+    pub(crate) fn updated(&self, kind: TimelineItemKind) -> Self {
+        Self { kind, internal_id: self.internal_id }
     }
 
     /// Get the inner `EventTimelineItem`, if this is a `TimelineItem::Event`.
@@ -740,20 +744,20 @@ impl TimelineItem {
     }
 
     /// Creates a new day divider from the given timestamp.
-    fn day_divider(ts: MilliSecondsSinceUnixEpoch) -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)))
+    fn day_divider(ts: MilliSecondsSinceUnixEpoch, internal_id: usize) -> TimelineItem {
+        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)), internal_id)
     }
 
-    fn read_marker() -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker))
+    fn read_marker(internal_id: usize) -> TimelineItem {
+        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker), internal_id)
     }
 
-    fn loading_indicator() -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::LoadingIndicator))
+    fn loading_indicator(internal_id: usize) -> TimelineItem {
+        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::LoadingIndicator), internal_id)
     }
 
-    fn timeline_start() -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart))
+    fn timeline_start(internal_id: usize) -> TimelineItem {
+        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart), internal_id)
     }
 
     fn is_virtual(&self) -> bool {
@@ -785,15 +789,15 @@ impl Deref for TimelineItem {
     }
 }
 
-impl From<EventTimelineItem> for TimelineItem {
+impl From<EventTimelineItem> for TimelineItemKind {
     fn from(item: EventTimelineItem) -> Self {
-        Self::new(TimelineItemKind::Event(item))
+        Self::Event(item)
     }
 }
 
-impl From<VirtualTimelineItem> for TimelineItem {
+impl From<VirtualTimelineItem> for TimelineItemKind {
     fn from(item: VirtualTimelineItem) -> Self {
-        Self::new(TimelineItemKind::Virtual(item))
+        Self::Virtual(item)
     }
 }
 
@@ -802,18 +806,18 @@ impl From<VirtualTimelineItem> for TimelineItem {
 fn rfind_event_item(
     items: &Vector<Arc<TimelineItem>>,
     mut f: impl FnMut(&EventTimelineItem) -> bool,
-) -> Option<(usize, &EventTimelineItem)> {
+) -> Option<(usize, &EventTimelineItem, usize)> {
     items
         .iter()
         .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?)))
-        .rfind(|(_, it)| f(it))
+        .filter_map(|(idx, item)| Some((idx, item.as_event()?, item.unique_id())))
+        .rfind(|(_, it, _)| f(it))
 }
 
 fn rfind_event_by_id<'a>(
     items: &'a Vector<Arc<TimelineItem>>,
     event_id: &EventId,
-) -> Option<(usize, &'a EventTimelineItem)> {
+) -> Option<(usize, &'a EventTimelineItem, usize)> {
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
@@ -882,8 +886,8 @@ fn compare_events_positions(
         return Some(RelativePosition::Same);
     }
 
-    let (pos_event_a, _) = rfind_event_by_id(timeline_items, event_a)?;
-    let (pos_event_b, _) = rfind_event_by_id(timeline_items, event_b)?;
+    let (pos_event_a, _, _) = rfind_event_by_id(timeline_items, event_a)?;
+    let (pos_event_b, _, _) = rfind_event_by_id(timeline_items, event_b)?;
 
     if pos_event_a > pos_event_b {
         Some(RelativePosition::Before)

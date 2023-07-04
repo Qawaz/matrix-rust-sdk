@@ -179,7 +179,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let related_event = {
             let items = state.items.clone();
-            let (_, item) = rfind_event_by_id(&items, &annotation.event_id)
+            let (_, item, _) = rfind_event_by_id(&items, &annotation.event_id)
                 .ok_or(super::Error::FailedToToggleReaction)?;
             item.to_owned()
         };
@@ -513,7 +513,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // If there's both the remote echo and a local echo, that means the
             // remote echo was received before the response *and* contained no
             // transaction ID (and thus duplicated the local echo).
-            if let Some((idx, _)) = local_echo {
+            if let Some((idx, _, _)) = local_echo {
                 warn!("Message echo got duplicated, removing the local one");
                 state.items.remove(idx);
 
@@ -540,7 +540,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     && it.as_local().is_some()
         });
 
-        let Some((idx, item)) = result else {
+        let Some((idx, item, id)) = result else {
             // Event isn't found at all.
             warn!("Timeline item not found, can't add event ID");
             return;
@@ -560,9 +560,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
 
-        let new_item = TimelineItem::new(TimelineItemKind::Event(
-            item.with_kind(local_item.with_send_state(send_state)),
-        ));
+        let new_item = TimelineItem::new(
+            TimelineItemKind::Event(item.with_kind(local_item.with_send_state(send_state))),
+            id,
+        );
         state.items.set(idx, Arc::new(new_item));
 
         if is_error {
@@ -571,14 +572,13 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // events to cancelled.
             let num_items = state.items.len();
             for idx in 0..num_items {
-                let Some(item) = state.items[idx].as_event() else { continue };
-                let Some(local_item) = item.as_local() else { continue };
+                let item = state.items[idx].clone();
+                let Some(event_item) = item.as_event() else { continue };
+                let Some(local_item) = event_item.as_local() else { continue };
                 if matches!(&local_item.send_state, EventSendState::NotSentYet) {
-                    let new_item =
-                        item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
-                    state
-                        .items
-                        .set(idx, Arc::new(TimelineItem::new(TimelineItemKind::Event(new_item))));
+                    let new_event_item =
+                        event_item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
+                    state.items.set(idx, Arc::new(item.updated(new_event_item.into())));
                 }
             }
         }
@@ -638,7 +638,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Option<TimelineItemContent> {
         let mut state = self.state.lock().await;
 
-        let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
+        let (idx, item, id) =
+            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
         let local_item = item.as_local()?;
 
         match &local_item.send_state {
@@ -653,9 +654,12 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             EventSendState::SendingFailed { .. } | EventSendState::Cancelled => {}
         }
 
-        let new_item = TimelineItem::new(TimelineItemKind::Event(
-            item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
-        ));
+        let new_item = TimelineItem::new(
+            TimelineItemKind::Event(
+                item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
+            ),
+            id,
+        );
 
         let content = item.content.clone();
         state.items.set(idx, Arc::new(new_item));
@@ -665,7 +669,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
         let mut state = self.state.lock().await;
-        if let Some((idx, _)) =
+        if let Some((idx, _, _)) =
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
             state.items.remove(idx);
@@ -704,7 +708,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             return;
         }
 
-        state.items.push_front(Arc::new(TimelineItem::loading_indicator()));
+        // We need to add a new id here
+        state.items.push_front(Arc::new(TimelineItem::loading_indicator(0)));
     }
 
     #[instrument(skip(self))]
@@ -719,7 +724,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         if more_messages {
             state.items.pop_front();
         } else {
-            state.items.set(0, Arc::new(TimelineItem::timeline_start()));
+            // We need to add a new id here
+            state.items.set(0, Arc::new(TimelineItem::timeline_start(0)));
         }
     }
 
@@ -856,9 +862,10 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     async fn set_non_ready_sender_profiles(&self, profile_state: TimelineDetails<Profile>) {
         let mut state = self.state.lock().await;
         for idx in 0..state.items.len() {
-            let Some(event_item) = state.items[idx].as_event() else { continue };
+            let item = state.items[idx].clone();
+            let Some(event_item) = item.as_event() else { continue };
             if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
-                let item = Arc::new(TimelineItem::new(TimelineItemKind::Event(
+                let item = Arc::new(item.updated(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
                 )));
                 state.items.set(idx, item);
@@ -881,26 +888,21 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
             assert_eq!(state.items.len(), num_items);
 
-            let event_item = state.items[idx].as_event().unwrap();
+            let item = state.items[idx].clone();
+            let event_item = item.as_event().unwrap();
             match maybe_profile {
                 Some(profile) => {
                     if !event_item.sender_profile().contains(&profile) {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        state.items.set(
-                            idx,
-                            Arc::new(TimelineItem::new(TimelineItemKind::Event(updated_item))),
-                        );
+                        state.items.set(idx, Arc::new(item.updated(updated_item.into())));
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        state.items.set(
-                            idx,
-                            Arc::new(TimelineItem::new(TimelineItemKind::Event(updated_item))),
-                        );
+                        state.items.set(idx, Arc::new(item.updated(updated_item.into())));
                     }
                 }
             }
@@ -950,7 +952,7 @@ impl TimelineInner {
         event_id: &EventId,
     ) -> Result<(), super::Error> {
         let state = self.state.lock().await;
-        let (index, item) = rfind_event_by_id(&state.items, event_id)
+        let (index, item, _) = rfind_event_by_id(&state.items, event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
         let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
 
@@ -981,7 +983,7 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
+        let (index, item, id) = rfind_event_by_id(&state.items, &remote_item.event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
@@ -1003,7 +1005,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, Arc::new(item.into()));
+        state.items.set(index, Arc::new(TimelineItem::new(item.into(), id)));
 
         Ok(())
     }
@@ -1212,7 +1214,7 @@ async fn fetch_replied_to_event(
     in_reply_to: &EventId,
     room: &room::Common,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
-    if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
+    if let Some((_, item, _)) = rfind_event_by_id(&state.items, in_reply_to) {
         let details = match item.content() {
             TimelineItemContent::Message(message) => {
                 TimelineDetails::Ready(Box::new(RepliedToEvent {
@@ -1234,7 +1236,8 @@ async fn fetch_replied_to_event(
         event: TimelineDetails::Pending,
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
-    state.items.set(index, Arc::new(event_item.into()));
+    // Insert new id here
+    state.items.set(index, Arc::new(TimelineItem::new(event_item.into(), 0)));
 
     // Don't hold the state lock while the network request is made
     drop(state);
@@ -1272,7 +1275,7 @@ fn update_timeline_reaction(
         it.event_id().is_some_and(|it| it == annotation.event_id)
     });
 
-    let Some((idx, related)) = related else {
+    let Some((idx, related, id)) = related else {
         // Event isn't found at all.
         warn!("Timeline item not found, can't update reaction ID");
         return Err(super::Error::FailedToToggleReaction);
@@ -1329,7 +1332,7 @@ fn update_timeline_reaction(
         }
     }
 
-    state.items.set(idx, Arc::new(new_related.into()));
+    state.items.set(idx, Arc::new(TimelineItem::new(new_related.into(), id)));
 
     Ok(())
 }
