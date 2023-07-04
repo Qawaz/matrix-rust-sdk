@@ -179,7 +179,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let related_event = {
             let items = state.items.clone();
-            let (_, item, _) = rfind_event_by_id(&items, &annotation.event_id)
+            let (_, item) = rfind_event_by_id(&items, &annotation.event_id)
                 .ok_or(super::Error::FailedToToggleReaction)?;
             item.to_owned()
         };
@@ -513,7 +513,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             // If there's both the remote echo and a local echo, that means the
             // remote echo was received before the response *and* contained no
             // transaction ID (and thus duplicated the local echo).
-            if let Some((idx, _, _)) = local_echo {
+            if let Some((idx, _)) = local_echo {
                 warn!("Message echo got duplicated, removing the local one");
                 state.items.remove(idx);
 
@@ -540,7 +540,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     && it.as_local().is_some()
         });
 
-        let Some((idx, item, id)) = result else {
+        let Some((idx, item)) = result else {
             // Event isn't found at all.
             warn!("Timeline item not found, can't add event ID");
             return;
@@ -562,7 +562,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let new_item = TimelineItem::new(
             TimelineItemKind::Event(item.with_kind(local_item.with_send_state(send_state))),
-            id,
+            item.internal_id,
         );
         state.items.set(idx, Arc::new(new_item));
 
@@ -638,8 +638,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
     ) -> Option<TimelineItemContent> {
         let mut state = self.state.lock().await;
 
-        let (idx, item, id) =
-            rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
+        let (idx, item) = rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))?;
         let local_item = item.as_local()?;
 
         match &local_item.send_state {
@@ -658,7 +657,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             TimelineItemKind::Event(
                 item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
             ),
-            id,
+            item.internal_id,
         );
 
         let content = item.content.clone();
@@ -669,7 +668,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
     pub(super) async fn discard_local_echo(&self, txn_id: &TransactionId) -> bool {
         let mut state = self.state.lock().await;
-        if let Some((idx, _, _)) =
+        if let Some((idx, _)) =
             rfind_event_item(&state.items, |it| it.transaction_id() == Some(txn_id))
         {
             state.items.remove(idx);
@@ -952,7 +951,7 @@ impl TimelineInner {
         event_id: &EventId,
     ) -> Result<(), super::Error> {
         let state = self.state.lock().await;
-        let (index, item, _) = rfind_event_by_id(&state.items, event_id)
+        let (index, item) = rfind_event_by_id(&state.items, event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
         let remote_item = item.as_remote().ok_or(super::Error::RemoteEventNotInTimeline)?.clone();
 
@@ -983,7 +982,7 @@ impl TimelineInner {
         // We need to be sure to have the latest position of the event as it might have
         // changed while waiting for the request.
         let mut state = self.state.lock().await;
-        let (index, item, id) = rfind_event_by_id(&state.items, &remote_item.event_id)
+        let (index, item) = rfind_event_by_id(&state.items, &remote_item.event_id)
             .ok_or(super::Error::RemoteEventNotInTimeline)?;
 
         // Check the state of the event again, it might have been redacted while
@@ -998,6 +997,7 @@ impl TimelineInner {
         };
 
         trace!("Updating in-reply-to details");
+        let internal_id = item.internal_id;
         let mut item = item.clone();
         item.set_content(TimelineItemContent::Message(
             message.with_in_reply_to(InReplyToDetails {
@@ -1005,7 +1005,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, Arc::new(TimelineItem::new(item.into(), id)));
+        state.items.set(index, Arc::new(TimelineItem::new(item.into(), internal_id)));
 
         Ok(())
     }
@@ -1214,7 +1214,7 @@ async fn fetch_replied_to_event(
     in_reply_to: &EventId,
     room: &room::Common,
 ) -> Result<TimelineDetails<Box<RepliedToEvent>>, super::Error> {
-    if let Some((_, item, _)) = rfind_event_by_id(&state.items, in_reply_to) {
+    if let Some((_, item)) = rfind_event_by_id(&state.items, in_reply_to) {
         let details = match item.content() {
             TimelineItemContent::Message(message) => {
                 TimelineDetails::Ready(Box::new(RepliedToEvent {
@@ -1275,7 +1275,7 @@ fn update_timeline_reaction(
         it.event_id().is_some_and(|it| it == annotation.event_id)
     });
 
-    let Some((idx, related, id)) = related else {
+    let Some((idx, related)) = related else {
         // Event isn't found at all.
         warn!("Timeline item not found, can't update reaction ID");
         return Err(super::Error::FailedToToggleReaction);
@@ -1332,7 +1332,7 @@ fn update_timeline_reaction(
         }
     }
 
-    state.items.set(idx, Arc::new(TimelineItem::new(new_related.into(), id)));
+    state.items.set(idx, Arc::new(TimelineItem::new(new_related.into(), related.internal_id)));
 
     Ok(())
 }

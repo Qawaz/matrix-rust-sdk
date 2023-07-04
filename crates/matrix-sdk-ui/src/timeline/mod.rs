@@ -272,7 +272,7 @@ impl Timeline {
     /// object to look up items.
     pub async fn item_by_event_id(&self, event_id: &EventId) -> Option<EventTimelineItem> {
         let items = self.inner.items().await;
-        let (_, item, _) = rfind_event_by_id(&items, event_id)?;
+        let (_, item) = rfind_event_by_id(&items, event_id)?;
         Some(item.to_owned())
     }
 
@@ -801,23 +801,41 @@ impl From<VirtualTimelineItem> for TimelineItemKind {
     }
 }
 
+struct EventTimelineItemWithId<'a> {
+    inner: &'a EventTimelineItem,
+    internal_id: usize,
+}
+
+impl Deref for EventTimelineItemWithId<'_> {
+    type Target = EventTimelineItem;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+    }
+}
+
 // FIXME: Put an upper bound on timeline size or add a separate map to look up
 // the index of a timeline item by its key, to avoid large linear scans.
 fn rfind_event_item(
     items: &Vector<Arc<TimelineItem>>,
     mut f: impl FnMut(&EventTimelineItem) -> bool,
-) -> Option<(usize, &EventTimelineItem, usize)> {
+) -> Option<(usize, EventTimelineItemWithId<'_>)> {
     items
         .iter()
         .enumerate()
-        .filter_map(|(idx, item)| Some((idx, item.as_event()?, item.unique_id())))
-        .rfind(|(_, it, _)| f(it))
+        .filter_map(|(idx, item)| {
+            Some((
+                idx,
+                EventTimelineItemWithId { inner: item.as_event()?, internal_id: item.internal_id },
+            ))
+        })
+        .rfind(|(_, it)| f(it.inner))
 }
 
 fn rfind_event_by_id<'a>(
     items: &'a Vector<Arc<TimelineItem>>,
     event_id: &EventId,
-) -> Option<(usize, &'a EventTimelineItem, usize)> {
+) -> Option<(usize, EventTimelineItemWithId<'a>)> {
     rfind_event_item(items, |it| it.event_id() == Some(event_id))
 }
 
@@ -886,8 +904,8 @@ fn compare_events_positions(
         return Some(RelativePosition::Same);
     }
 
-    let (pos_event_a, _, _) = rfind_event_by_id(timeline_items, event_a)?;
-    let (pos_event_b, _, _) = rfind_event_by_id(timeline_items, event_b)?;
+    let (pos_event_a, _) = rfind_event_by_id(timeline_items, event_a)?;
+    let (pos_event_b, _) = rfind_event_by_id(timeline_items, event_b)?;
 
     if pos_event_a > pos_event_b {
         Some(RelativePosition::Before)

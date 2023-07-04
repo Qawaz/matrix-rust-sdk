@@ -427,7 +427,7 @@ impl<'a> TimelineEventHandler<'a> {
             }
         };
 
-        if let Some((idx, event_item, id)) = rfind_event_by_id(self.items, event_id) {
+        if let Some((idx, event_item)) = rfind_event_by_id(self.items, event_id) {
             let Some(remote_event_item) = event_item.as_remote() else {
                 error!("inconsistent state: reaction received on a non-remote event item");
                 return;
@@ -458,7 +458,7 @@ impl<'a> TimelineEventHandler<'a> {
                     idx,
                     Arc::new(TimelineItem::new(
                         event_item.with_kind(remote_event_item.with_reactions(reactions)).into(),
-                        id,
+                        event_item.internal_id,
                     )),
                 );
                 self.result.items_updated += 1;
@@ -752,7 +752,7 @@ impl<'a> TimelineEventHandler<'a> {
                         || it.event_id() == Some(event_id)
                 });
 
-                if let Some((idx, old_item, id)) = result {
+                if let Some((idx, old_item)) = result {
                     if old_item.as_remote().is_some() {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
@@ -798,7 +798,10 @@ impl<'a> TimelineEventHandler<'a> {
                         }
 
                         trace!(idx, "Replacing existing event");
-                        self.items.set(idx, Arc::new(TimelineItem::new(item.into(), id)));
+                        self.items.set(
+                            idx,
+                            Arc::new(TimelineItem::new(item.into(), old_item.internal_id)),
+                        );
                         return;
                     }
 
@@ -964,7 +967,7 @@ pub(crate) fn update_read_marker(
     trace!(?fully_read_event, "Updating read marker");
 
     let read_marker_idx = find_read_marker(items);
-    let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _, _)| idx);
+    let fully_read_event_idx = rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
 
     match (read_marker_idx, fully_read_event_idx) {
         (None, None) => {
@@ -1013,11 +1016,11 @@ fn _update_timeline_item(
     action: &str,
     update: impl FnOnce(&EventTimelineItem) -> Option<EventTimelineItem>,
 ) {
-    if let Some((idx, item, id)) = rfind_event_by_id(items, event_id) {
+    if let Some((idx, item)) = rfind_event_by_id(items, event_id) {
         trace!("Found timeline item to update");
-        if let Some(new_item) = update(item) {
+        if let Some(new_item) = update(item.inner) {
             trace!("Updating item");
-            items.set(idx, Arc::new(TimelineItem::new(new_item.into(), id)));
+            items.set(idx, Arc::new(TimelineItem::new(new_item.into(), item.internal_id)));
             *items_updated += 1;
         }
     } else {
