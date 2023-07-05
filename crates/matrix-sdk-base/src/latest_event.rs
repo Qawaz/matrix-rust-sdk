@@ -71,8 +71,8 @@ mod test {
                     SyncRoomEncryptedEvent,
                 },
                 message::{
-                    ImageMessageEventContent, MessageType, RoomMessageEventContent,
-                    SyncRoomMessageEvent,
+                    ImageMessageEventContent, MessageType, RedactedRoomMessageEventContent,
+                    RoomMessageEventContent, SyncRoomMessageEvent,
                 },
                 topic::{RoomTopicEventContent, SyncRoomTopicEvent},
                 ImageInfo, MediaSource,
@@ -80,10 +80,12 @@ mod test {
             sticker::{StickerEventContent, SyncStickerEvent},
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
             MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
-            StateUnsigned,
+            RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned,
+            UnsignedRoomRedactionEvent,
         },
         owned_event_id, owned_mxc_uri, owned_user_id, MilliSecondsSinceUnixEpoch, UInt,
     };
+    use serde_json::json;
 
     use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 
@@ -133,27 +135,30 @@ mod test {
         );
     }
 
-    // TODO: I can't write this test because I can't construct a
-    // UnsignedRoomRedactionEvent.       I asked a question in the Ruma room.
-    //#[test]
-    //fn redacted_messages_are_unsuitable() {
-    //    let event =
-    // AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-    //        SyncRoomMessageEvent::Redacted(RedactedSyncMessageLikeEvent {
-    //            content: RedactedRoomMessageEventContent::new(),
-    //            event_id: owned_event_id!("$1"),
-    //            sender: owned_user_id!("@a:b.c"),
-    //            origin_server_ts:
-    // MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
-    // unsigned: RedactedUnsigned::new(UnsignedRoomRedactionEvent::new()),
-    //        }),
-    //    ));
+    #[test]
+    fn redacted_messages_are_unsuitable() {
+        // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
+        let room_redaction_event: UnsignedRoomRedactionEvent = serde_json::from_value(json!({
+            "content": {},
+            "event_id": "$redaction",
+            "sender": "@x:y.za",
+            "origin_server_ts": 223543,
+            "unsigned": { "reason": "foo" }
+        }))
+        .unwrap();
 
-    //    assert_matches!(
-    //        is_suitable_for_latest_event(&event),
-    //        PossibleLatestEvent::NoUnsupportedMessageLikeType
-    //    );
-    //}
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncRoomMessageEvent::Redacted(RedactedSyncMessageLikeEvent {
+                content: RedactedRoomMessageEventContent::new(),
+                event_id: owned_event_id!("$1"),
+                sender: owned_user_id!("@a:b.c"),
+                origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new(2123).unwrap()),
+                unsigned: RedactedUnsigned::new(room_redaction_event),
+            }),
+        ));
+
+        assert_matches!(is_suitable_for_latest_event(&event), PossibleLatestEvent::NoRedacted);
+    }
 
     #[test]
     fn encrypted_messages_are_unsuitable() {
