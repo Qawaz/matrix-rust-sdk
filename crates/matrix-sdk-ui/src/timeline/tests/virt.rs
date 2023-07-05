@@ -23,7 +23,7 @@ use ruma::{
 use stream_assert::assert_next_matches;
 
 use super::{TestTimeline, ALICE, BOB};
-use crate::timeline::{TimelineItem, TimelineItemKind, VirtualTimelineItem};
+use crate::timeline::{TimelineItemKind, VirtualTimelineItem};
 
 #[async_test]
 async fn day_divider() {

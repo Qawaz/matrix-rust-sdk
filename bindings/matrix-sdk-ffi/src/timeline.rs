@@ -232,6 +232,10 @@ impl TimelineItem {
         }
     }
 
+    pub fn unique_id(&self) -> u64 {
+        self.0.unique_id()
+    }
+
     pub fn fmt_debug(&self) -> String {
         format!("{:#?}", self.0)
     }
@@ -276,10 +280,6 @@ impl EventTimelineItem {
 
     pub fn is_remote(&self) -> bool {
         !self.0.is_local_echo()
-    }
-
-    pub fn unique_identifier(&self) -> String {
-        self.0.unique_identifier()
     }
 
     pub fn transaction_id(&self) -> Option<String> {

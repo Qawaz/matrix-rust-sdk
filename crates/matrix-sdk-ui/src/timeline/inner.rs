@@ -62,13 +62,13 @@ use super::{
         TimelineEventMetadata, TimelineItemPosition,
     },
     reactions::ReactionToggleResult,
-    rfind_event_by_id, rfind_event_item,
+    rfind_event_by_id, rfind_event_item, timeline_item,
     traits::RoomDataProvider,
     AnnotationKey, EventSendState, EventTimelineItem, InReplyToDetails, Message, Profile,
     RelativePosition, RepliedToEvent, TimelineDetails, TimelineItem, TimelineItemContent,
     TimelineItemKind,
 };
-use crate::events::SyncTimelineEventWithoutContent;
+use crate::{events::SyncTimelineEventWithoutContent, timeline::new_timeline_item};
 
 #[derive(Debug)]
 pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
@@ -80,6 +80,7 @@ pub(super) struct TimelineInner<P: RoomDataProvider = room::Common> {
 #[derive(Debug, Default)]
 pub(super) struct TimelineInnerState {
     pub(super) items: ObservableVector<Arc<TimelineItem>>,
+    pub(super) next_internal_id: u64,
     /// Reaction event / txn ID => sender and reaction data.
     pub(super) reaction_map:
         HashMap<(Option<OwnedTransactionId>, Option<OwnedEventId>), (OwnedUserId, Annotation)>,
@@ -560,11 +561,8 @@ impl<P: RoomDataProvider> TimelineInner<P> {
 
         let is_error = matches!(send_state, EventSendState::SendingFailed { .. });
 
-        let new_item = TimelineItem::new(
-            TimelineItemKind::Event(item.with_kind(local_item.with_send_state(send_state))),
-            item.internal_id,
-        );
-        state.items.set(idx, Arc::new(new_item));
+        let new_item = item.with_inner_kind(local_item.with_send_state(send_state));
+        state.items.set(idx, new_item);
 
         if is_error {
             // When there is an error, sending further messages is paused. This
@@ -578,7 +576,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                 if matches!(&local_item.send_state, EventSendState::NotSentYet) {
                     let new_event_item =
                         event_item.with_kind(local_item.with_send_state(EventSendState::Cancelled));
-                    state.items.set(idx, Arc::new(item.updated(new_event_item.into())));
+                    state.items.set(idx, item.with_kind(new_event_item));
                 }
             }
         }
@@ -653,15 +651,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             EventSendState::SendingFailed { .. } | EventSendState::Cancelled => {}
         }
 
-        let new_item = TimelineItem::new(
-            TimelineItemKind::Event(
-                item.with_kind(local_item.with_send_state(EventSendState::NotSentYet)),
-            ),
-            item.internal_id,
-        );
-
+        let new_item = item.with_inner_kind(local_item.with_send_state(EventSendState::NotSentYet));
         let content = item.content.clone();
-        state.items.set(idx, Arc::new(new_item));
+        state.items.set(idx, new_item);
 
         Some(content)
     }
@@ -708,7 +700,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
         }
 
         // We need to add a new id here
-        state.items.push_front(Arc::new(TimelineItem::loading_indicator(0)));
+        state.items.push_front(Arc::new(TimelineItem::loading_indicator()));
     }
 
     #[instrument(skip(self))]
@@ -724,7 +716,7 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             state.items.pop_front();
         } else {
             // We need to add a new id here
-            state.items.set(0, Arc::new(TimelineItem::timeline_start(0)));
+            state.items.set(0, Arc::new(TimelineItem::timeline_start()));
         }
     }
 
@@ -864,9 +856,9 @@ impl<P: RoomDataProvider> TimelineInner<P> {
             let item = state.items[idx].clone();
             let Some(event_item) = item.as_event() else { continue };
             if !matches!(event_item.sender_profile(), TimelineDetails::Ready(_)) {
-                let item = Arc::new(item.updated(TimelineItemKind::Event(
+                let item = item.with_kind(TimelineItemKind::Event(
                     event_item.with_sender_profile(profile_state.clone()),
-                )));
+                ));
                 state.items.set(idx, item);
             }
         }
@@ -894,14 +886,14 @@ impl<P: RoomDataProvider> TimelineInner<P> {
                     if !event_item.sender_profile().contains(&profile) {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        state.items.set(idx, Arc::new(item.updated(updated_item.into())));
+                        state.items.set(idx, item.with_kind(updated_item));
                     }
                 }
                 None => {
                     if !event_item.sender_profile().is_unavailable() {
                         let updated_item =
                             event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        state.items.set(idx, Arc::new(item.updated(updated_item.into())));
+                        state.items.set(idx, item.with_kind(updated_item));
                     }
                 }
             }
@@ -1005,7 +997,7 @@ impl TimelineInner {
                 event,
             }),
         ));
-        state.items.set(index, Arc::new(TimelineItem::new(item.into(), internal_id)));
+        state.items.set(index, timeline_item(item, internal_id));
 
         Ok(())
     }
@@ -1236,8 +1228,9 @@ async fn fetch_replied_to_event(
         event: TimelineDetails::Pending,
     });
     let event_item = item.with_content(TimelineItemContent::Message(reply), None);
-    // Insert new id here
-    state.items.set(index, Arc::new(TimelineItem::new(event_item.into(), 0)));
+
+    let state_ref = &mut *state;
+    state_ref.items.set(index, new_timeline_item(event_item, &mut state_ref.next_internal_id));
 
     // Don't hold the state lock while the network request is made
     drop(state);
@@ -1332,7 +1325,7 @@ fn update_timeline_reaction(
         }
     }
 
-    state.items.set(idx, Arc::new(TimelineItem::new(new_related.into(), related.internal_id)));
+    state.items.set(idx, timeline_item(new_related, related.internal_id));
 
     Ok(())
 }

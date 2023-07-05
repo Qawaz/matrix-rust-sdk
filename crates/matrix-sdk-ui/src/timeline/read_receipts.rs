@@ -25,7 +25,8 @@ use tracing::{error, warn};
 
 use super::{
     compare_events_positions, event_item::EventTimelineItemKind, inner::TimelineInnerState,
-    rfind_event_by_id, traits::RoomDataProvider, EventTimelineItem, RelativePosition, TimelineItem,
+    rfind_event_by_id, timeline_item, traits::RoomDataProvider, EventTimelineItem,
+    RelativePosition, TimelineItem,
 };
 
 struct FullReceipt<'a> {
@@ -48,7 +49,7 @@ impl TimelineInnerState {
         let Some(mut event_item) = timeline_item.as_event().cloned() else { return };
 
         event_item.as_remote_mut().unwrap().add_read_receipt(user_id, receipt);
-        self.items.set(pos, Arc::new(timeline_item.updated(event_item.into())));
+        self.items.set(pos, timeline_item.with_kind(event_item));
     }
 
     pub(super) fn handle_explicit_read_receipts(
@@ -283,10 +284,8 @@ fn maybe_update_read_receipt(
                          receipt doesn't have a receipt for the user"
                     );
                 }
-                timeline_items.set(
-                    old_receipt_pos,
-                    Arc::new(TimelineItem::new(old_event_item.into(), old_event_item_id)),
-                );
+                timeline_items
+                    .set(old_receipt_pos, timeline_item(old_event_item, old_event_item_id));
             } else {
                 warn!("received a read receipt for a local item, this should not be possible");
             }

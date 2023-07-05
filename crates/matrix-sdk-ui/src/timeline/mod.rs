@@ -41,7 +41,7 @@ use ruma::{
         room::{message::sanitize::HtmlSanitizerMode, redaction::RoomRedactionEventContent},
         AnyMessageLikeEventContent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
@@ -68,6 +68,12 @@ mod virtual_item;
 pub(crate) use self::builder::TimelineBuilder;
 #[cfg(feature = "experimental-sliding-sync")]
 pub use self::sliding_sync_ext::SlidingSyncRoomExt;
+use self::{
+    event_item::EventTimelineItemKind,
+    inner::{ReactionAction, TimelineInner, TimelineInnerState},
+    queue::LocalMessage,
+    reactions::ReactionToggleResult,
+};
 pub use self::{
     event_item::{
         AnyOtherFullStateEventContent, BundledReactions, EncryptedMessage, EventSendState,
@@ -79,11 +85,6 @@ pub use self::{
     pagination::{PaginationOptions, PaginationOutcome},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
-};
-use self::{
-    inner::{ReactionAction, TimelineInner, TimelineInnerState},
-    queue::LocalMessage,
-    reactions::ReactionToggleResult,
 };
 
 /// The default sanitizer mode used when sanitizing HTML.
@@ -703,16 +704,12 @@ pub enum TimelineItemKind {
 #[derive(Clone, Debug)]
 pub struct TimelineItem {
     kind: TimelineItemKind,
-    internal_id: usize,
+    internal_id: u64,
 }
 
 impl TimelineItem {
-    pub(crate) fn new(kind: TimelineItemKind, internal_id: usize) -> Self {
-        Self { kind, internal_id }
-    }
-
-    pub(crate) fn updated(&self, kind: TimelineItemKind) -> Self {
-        Self { kind, internal_id: self.internal_id }
+    pub(crate) fn with_kind(&self, kind: impl Into<TimelineItemKind>) -> Arc<Self> {
+        Arc::new(Self { kind: kind.into(), internal_id: self.internal_id })
     }
 
     /// Get the inner `EventTimelineItem`, if this is a `TimelineItem::Event`.
@@ -739,25 +736,29 @@ impl TimelineItem {
     /// `TimelineItem`. For some virtual items like day dividers, identity isn't
     /// easy to define though and you might see a new ID getting generated for a
     /// day divider that you perceive to be "the same" as a previous one.
-    pub fn unique_id(&self) -> usize {
+    pub fn unique_id(&self) -> u64 {
         self.internal_id
     }
 
-    /// Creates a new day divider from the given timestamp.
-    fn day_divider(ts: MilliSecondsSinceUnixEpoch, internal_id: usize) -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::DayDivider(ts)), internal_id)
+    fn read_marker() -> Arc<TimelineItem> {
+        Arc::new(Self {
+            kind: TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker),
+            internal_id: u64::MAX,
+        })
     }
 
-    fn read_marker(internal_id: usize) -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker), internal_id)
+    fn loading_indicator() -> TimelineItem {
+        Self {
+            kind: TimelineItemKind::Virtual(VirtualTimelineItem::LoadingIndicator),
+            internal_id: u64::MAX - 1,
+        }
     }
 
-    fn loading_indicator(internal_id: usize) -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::LoadingIndicator), internal_id)
-    }
-
-    fn timeline_start(internal_id: usize) -> TimelineItem {
-        Self::new(TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart), internal_id)
+    fn timeline_start() -> TimelineItem {
+        Self {
+            kind: TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart),
+            internal_id: u64::MAX - 2,
+        }
     }
 
     fn is_virtual(&self) -> bool {
@@ -801,9 +802,31 @@ impl From<VirtualTimelineItem> for TimelineItemKind {
     }
 }
 
+fn timeline_item(kind: impl Into<TimelineItemKind>, internal_id: u64) -> Arc<TimelineItem> {
+    Arc::new(TimelineItem { kind: kind.into(), internal_id })
+}
+
+fn new_timeline_item(
+    kind: impl Into<TimelineItemKind>,
+    next_internal_id: &mut u64,
+) -> Arc<TimelineItem> {
+    let internal_id = *next_internal_id;
+    *next_internal_id += 1;
+    timeline_item(kind, internal_id)
+}
+
 struct EventTimelineItemWithId<'a> {
     inner: &'a EventTimelineItem,
-    internal_id: usize,
+    internal_id: u64,
+}
+
+impl<'a> EventTimelineItemWithId<'a> {
+    fn with_inner_kind(&self, kind: impl Into<EventTimelineItemKind>) -> Arc<TimelineItem> {
+        Arc::new(TimelineItem {
+            kind: self.inner.with_kind(kind).into(),
+            internal_id: self.internal_id,
+        })
+    }
 }
 
 impl Deref for EventTimelineItemWithId<'_> {
