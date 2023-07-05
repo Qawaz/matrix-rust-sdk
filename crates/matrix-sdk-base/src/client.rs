@@ -56,8 +56,7 @@ use tokio::sync::RwLock;
 use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
-#[cfg(feature = "e2e-encryption")]
-#[cfg(feature = "experimental-sliding-sync")]
+#[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
 use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
@@ -600,8 +599,7 @@ impl BaseClient {
     /// that we can and if we can, change latest_event to reflect what we
     /// found, and remove any older encrypted events from
     /// latest_encrypted_events.
-    #[cfg(feature = "e2e-encryption")]
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     async fn decrypt_latest_events(&self, room: &mut Room, changes: &mut StateChanges) {
         // Try to find a message we can decrypt and is suitable for using as the latest
         // event. If we found one, set it as the latest and delete any older
@@ -618,8 +616,7 @@ impl BaseClient {
     /// (i.e. we can usefully display it as a message preview). Returns the
     /// decrypted event if we found one, along with its index in the
     /// latest_encrypted_events list, or None if we didn't find one.
-    #[cfg(feature = "e2e-encryption")]
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     async fn decrypt_latest_suitable_event(
         &self,
         room: &Room,
@@ -1437,8 +1434,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "e2e-encryption")]
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     #[async_test]
     async fn when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {
         // Given a room

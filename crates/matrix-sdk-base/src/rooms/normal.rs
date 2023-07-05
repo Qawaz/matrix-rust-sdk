@@ -399,8 +399,7 @@ impl Room {
     ///
     /// Panics if index is not a valid index in the latest_encrypted_events
     /// list.
-    #[cfg(feature = "e2e-encryption")]
-    #[cfg(feature = "experimental-sliding-sync")]
+    #[cfg(all(feature = "e2e-encryption", feature = "experimental-sliding-sync"))]
     pub(crate) fn on_latest_event_decrypted(&mut self, event: SyncTimelineEvent, index: usize) {
         self.set_latest_event(Some(event));
         self.latest_encrypted_events.write().unwrap().drain(0..=index);
