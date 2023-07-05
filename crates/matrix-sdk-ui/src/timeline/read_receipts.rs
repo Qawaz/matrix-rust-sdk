@@ -69,7 +69,7 @@ impl TimelineInnerState {
                     }
 
                     let receipt_item_pos =
-                        rfind_event_by_id(&self.items, &event_id).map(|(pos, _, _)| pos);
+                        rfind_event_by_id(&self.items, &event_id).map(|(pos, _)| pos);
                     let is_own_user_id = user_id == own_user_id;
                     let full_receipt = FullReceipt {
                         event_id: &event_id,
@@ -160,11 +160,11 @@ impl TimelineInnerState {
 
         // If we only have one, return it.
         let Some((pub_event_id, pub_receipt)) = &public_read_receipt else {
-    return private_read_receipt;
-};
+            return private_read_receipt;
+        };
         let Some((priv_event_id, priv_receipt)) = &private_read_receipt else {
-    return public_read_receipt;
-};
+            return public_read_receipt;
+        };
 
         // Compare by position in the timeline.
         if let Some(relative_pos) =
@@ -259,7 +259,7 @@ fn maybe_update_read_receipt(
     }
 
     let old_item_and_pos = old_event_id.and_then(|e| rfind_event_by_id(timeline_items, e));
-    if let Some((old_receipt_pos, old_event_item, old_event_id)) = old_item_and_pos {
+    if let Some((old_receipt_pos, old_event_item)) = old_item_and_pos {
         let Some(new_receipt_pos) = new_item_pos else {
             // The old receipt is likely more recent since we can't find the
             // event of the new receipt in the timeline. Even if it isn't, we
@@ -274,6 +274,7 @@ fn maybe_update_read_receipt(
 
         if !is_own_user_id {
             // Remove the read receipt for this user from the old event.
+            let old_event_item_id = old_event_item.internal_id;
             let mut old_event_item = old_event_item.clone();
             if let Some(old_remote_event_item) = old_event_item.as_remote_mut() {
                 if !old_remote_event_item.remove_read_receipt(receipt.user_id) {
@@ -284,7 +285,7 @@ fn maybe_update_read_receipt(
                 }
                 timeline_items.set(
                     old_receipt_pos,
-                    Arc::new(TimelineItem::new(old_event_item.into(), old_event_id)),
+                    Arc::new(TimelineItem::new(old_event_item.into(), old_event_item_id)),
                 );
             } else {
                 warn!("received a read receipt for a local item, this should not be possible");

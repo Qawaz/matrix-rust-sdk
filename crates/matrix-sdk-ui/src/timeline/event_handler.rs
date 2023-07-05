@@ -757,7 +757,7 @@ impl<'a> TimelineEventHandler<'a> {
                         // Item was previously received from the server. This
                         // should be very rare normally, but with the sliding-
                         // sync proxy, it is actually very common.
-                        trace!(?item, ?old_item, "Received duplicate event");
+                        trace!(?item, old_item = ?*old_item, "Received duplicate event");
 
                         if old_item.content.is_redacted() && !item.content.is_redacted() {
                             warn!("Got original form of an event that was previously redacted");
@@ -781,6 +781,8 @@ impl<'a> TimelineEventHandler<'a> {
                     // TODO: Check whether anything is different about the
                     //       old and new item?
 
+                    let old_item_id = old_item.internal_id;
+
                     if idx == self.items.len() - 1
                         && timestamp_to_date(old_item.timestamp()) == timestamp_to_date(timestamp)
                     {
@@ -798,10 +800,7 @@ impl<'a> TimelineEventHandler<'a> {
                         }
 
                         trace!(idx, "Replacing existing event");
-                        self.items.set(
-                            idx,
-                            Arc::new(TimelineItem::new(item.into(), old_item.internal_id)),
-                        );
+                        self.items.set(idx, Arc::new(TimelineItem::new(item.into(), old_item_id)));
                         return;
                     }
 
