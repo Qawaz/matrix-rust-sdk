@@ -47,10 +47,11 @@ use super::{
         LocalEventTimelineItem, MemberProfileChange, OtherState, Profile, RemoteEventOrigin,
         RemoteEventTimelineItem, RoomMembershipChange, Sticker,
     },
-    find_read_marker, new_timeline_item,
+    find_read_marker,
+    item::{new_timeline_item, timeline_item},
     read_receipts::maybe_add_implicit_read_receipt,
-    rfind_event_by_id, rfind_event_item, timeline_item, EventTimelineItem, MembershipChange,
-    Message, ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
+    rfind_event_by_id, rfind_event_item, EventTimelineItem, MembershipChange, Message,
+    ReactionGroup, TimelineDetails, TimelineInnerState, TimelineItem, TimelineItemContent,
     VirtualTimelineItem, DEFAULT_SANITIZER_MODE,
 };
 use crate::events::SyncTimelineEventWithoutContent;
