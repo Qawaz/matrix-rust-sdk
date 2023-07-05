@@ -2132,7 +2132,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     // The latest event has been updated.
     assert_matches!(
-        room.latest_event().await,
+        room.latest_event(),
         Some(event) => {
             assert_eq!(event.event_id(), Some(event_id!("$x1:bar.org")));
         }
