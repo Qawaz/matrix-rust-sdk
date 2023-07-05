@@ -57,6 +57,7 @@ use tokio::sync::RwLockReadGuard;
 use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
+#[cfg(feature = "experimental-sliding-sync")]
 use crate::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
 use crate::{
     deserialized_responses::{AmbiguityChanges, MembersResponse, SyncTimelineEvent},
