@@ -371,7 +371,7 @@ impl Room {
     }
 
     /// Return the last event in this room, if one has been cached during
-    /// sliding sync
+    /// sliding sync.
     #[cfg(feature = "experimental-sliding-sync")]
     pub fn latest_event(&self) -> Option<SyncTimelineEvent> {
         self.inner.read().unwrap().latest_event.clone()
