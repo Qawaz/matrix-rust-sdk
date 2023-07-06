@@ -107,7 +107,7 @@ impl TimelineBuilder {
                 .await
             {
                 Ok(Some(read_receipt)) => {
-                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt);
+                    inner.set_initial_user_receipt(ReceiptType::Read, read_receipt).await;
                 }
                 Err(e) => {
                     error!("Failed to get public read receipt of own user from the store: {e}");
@@ -124,7 +124,9 @@ impl TimelineBuilder {
                 .await
             {
                 Ok(Some(private_read_receipt)) => {
-                    inner.set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt);
+                    inner
+                        .set_initial_user_receipt(ReceiptType::ReadPrivate, private_read_receipt)
+                        .await;
                 }
                 Err(e) => {
                     error!("Failed to get private read receipt of own user from the store: {e}");
@@ -140,7 +142,6 @@ impl TimelineBuilder {
             inner.load_fully_read_event().await;
         }
 
-        let inner = Arc::new(inner);
         let room = inner.room();
         let client = room.client();
 

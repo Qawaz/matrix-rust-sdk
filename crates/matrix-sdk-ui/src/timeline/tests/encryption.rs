@@ -14,7 +14,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::{collections::BTreeSet, io::Cursor, iter};
+use std::{io::Cursor, iter};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -101,8 +101,8 @@ async fn retry_message_decryption() {
         .inner
         .retry_event_decryption_test(
             room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            &olm_machine,
-            Some(iter::once(SESSION_ID).collect()),
+            olm_machine,
+            Some(iter::once(SESSION_ID.to_owned()).collect()),
         )
         .await;
 
@@ -203,7 +203,7 @@ async fn retry_edit_decryption() {
         .inner
         .retry_event_decryption_test(
             room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
-            &olm_machine,
+            olm_machine,
             None,
         )
         .await;
@@ -306,8 +306,8 @@ async fn retry_edit_and_more() {
         .inner
         .retry_event_decryption_test(
             room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
-            &olm_machine,
-            Some(BTreeSet::from_iter([SESSION_ID])),
+            olm_machine,
+            Some(iter::once(SESSION_ID.to_owned()).collect()),
         )
         .await;
 
@@ -391,8 +391,8 @@ async fn retry_message_decryption_highlighted() {
         .inner
         .retry_event_decryption_test(
             room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
-            &olm_machine,
-            Some(iter::once(SESSION_ID).collect()),
+            olm_machine,
+            Some(iter::once(SESSION_ID.to_owned()).collect()),
         )
         .await;
 
