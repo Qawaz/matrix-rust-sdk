@@ -1270,9 +1270,9 @@ mod tests {
         C: EventType + DeserializeOwned + Serialize + std::fmt::Debug,
     {
         let content = extract_content(recipient, request);
-        let content: C = content
-            .deserialize_as()
-            .expect(&format!("We can always deserialize the to-device event content {content:?}"));
+        let content: C = content.deserialize_as().unwrap_or_else(|_| {
+            panic!("We can always deserialize the to-device event content {content:?}")
+        });
 
         ToDeviceEvent::new(sender.to_owned(), content)
     }
